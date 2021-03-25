@@ -21,10 +21,15 @@ next_s(その行動をすると得られる次のs,ニューラルネットに�
 reward、done(エピソードが終わったかの真理値終わったらTrue)を返す 
 =================================================================
 
-関数　create_model()で上のnext_sを入力、行動価値を出力にもつmodelを返す
+class model() でニューラルネットを定義
 
-Kerasで実装
+.predict(入力のnumpy配列)で（N,n_output)の出力を返す
+.save(保存名)でニューラルネット保存
+.fit(入力のnumpy配列,入力のnumpy配列)で学習
+.get_weights()でモデルの重み出力
+.set_weights(モデルの重み)でモデルの重み読み込み
 
+pytorchで実装
 ==================================================================
 
 class DDQN_agent()でエージェントを定義する。引数はmodel、環境（上で定義したようなクラスの
@@ -37,6 +42,9 @@ class DDQN_agent()でエージェントを定義する。引数はmodel、環境
 sのarray,aのindexのarray ,rのarray,s'のarrayをを作りDDQNのアルゴリズムにしたがって
 教師信号の入力xと出力yを返す。この時データの時系列を破壊するため得られた履歴のusing_data_rate*100%だけ使用
 
+self.next_Q_predict（次のs’を表すNNへの入力,そのs’に到達した時に得られたr)で
+shapeが（入力されたs'のlen,行動数)のQ値を返すがrがgame_over_rの場合はその行のQ値
+を全て0にする　DDQNなのでtarget_modelが出力することに注意
 
 .test()で今のエージェントが100%自分で行動選択した場合n_test回のエピソードで
 一回あたり平均どれだけの利得を得られたかを返す
@@ -53,15 +61,16 @@ sのarray,aのindexのarray ,rのarray,s'のarrayをを作りDDQNのアルゴリ
 
 class DDQN_agent():
     
-    def __init__(self,model,env,n_action,alpha,g,n_count,using_data_rate,n_test,finish_score,save_name):
+    def __init__(self,main_model,target_model,env,n_action,alpha,g,n_count,using_data_rate,\
+                 game_over_r,n_test,finish_score,save_name):
         
-        model.summary()
+        print(main_model)
         
         #２つのモデルを定義
         
-        self.main_model=model
+        self.main_model=main_model
         
-        self.target_model=model
+        self.target_model=target_model
         
         self.env=env
         
@@ -81,13 +90,23 @@ class DDQN_agent():
         
         self.save_name=save_name
         
-        
+        self.game_over_r=game_over_r
         
     def new_epsilon(self,epoch): 
         
         #指数的に減衰させる
         
         return 0.95**(epoch-1)
+    
+    def next_Q_predict(self,next_s,r):
+        
+        y=self.target_model.predict(next_s)
+        
+        game_over_index=np.where(r==self.game_over_r)[0]
+        
+        y[game_over_index]=np.zeros(self.n_action)
+        
+        return y
     
     def create_train_data(self,n_count,using_data_rate,n_action,epsilon):
         
@@ -156,10 +175,10 @@ class DDQN_agent():
         #Double Q-learningの更新式でyを更新
         
         
-        y[np.array([i for i in range(len(x))]),a_index]=\
-        (1-self.alpha)*y[np.array([i for i in range(len(x))]),a_index]+\
-        self.alpha*(r+self.g*self.target_model.predict(next_s)\
-                    [np.array([i for i in range(len(x))]),y.argmax(axis=1)])
+        y[np.arange(len(x)),a_index]=\
+        (1-self.alpha)*y[np.arange(len(x)),a_index]+\
+        self.alpha*(r+self.g*self.next_Q_predict(next_s,r)\
+                    [np.arange(len(x)),y.argmax(axis=1)])
         
         '''
         ↓上のコードの意味↓　行が対応しています y＝main_model(s)
@@ -194,6 +213,8 @@ class DDQN_agent():
                 
                 #r+=reward
             r+=self.env.count
+        
+        
                 
         return r/n_test
     
@@ -201,7 +222,7 @@ class DDQN_agent():
     
     def save(self,save_name):
         
-        self.main_model.save(save_name+'.hdf5')
+        self.main_model.save(save_name)
         
         
     
@@ -221,12 +242,9 @@ class DDQN_agent():
             #main_modelの重みをtarget_modelの重みに共有
             
             self.target_model.set_weights(self.main_model.get_weights())
-            
+           
             #main_model学習
-            self.main_model.fit(x,y,
-                       epochs=3,
-                       verbose=0
-                       )
+            self.main_model.fit(x,y)
             #モデル保存
             self.save(self.save_name)
             
@@ -296,42 +314,98 @@ class environment():
             
         return observation,reward,done
 
-from keras.layers import Dense,Input
-from keras import Model
+import torch
+from torch import tensor
+from torch.utils.data import TensorDataset,DataLoader
+from torch.nn import functional as F,Linear,Module
+from torch.optim import Adam
 
 
         
-def model():
+class model():
     
-    inputs=Input(shape=(4))
+    def __init__(self):
         
-    x=Dense(32,activation='relu')(inputs)
+        class Net(Module):
+            
+            def __init__(self):
+                      
+                super(Net,self).__init__()
+                self.fc1=Linear(4,10)
+                self.fc2=Linear(10,10)
+                self.fc3=Linear(10,2)
+                  
         
-    x=Dense(32,activation='relu')(x)
+            def forward(self,x):
         
-    y=Dense(2,activation='linear')(x)   
+                h1=F.relu(self.fc1(x))
+                h2=F.relu(self.fc2(h1))
+                outputs=self.fc3(h2)
+        
+                return outputs
+        
+        
+       
+        self.net=Net()
+        print(self.net)
+        self.optim=Adam(self.net.parameters(),lr=0.01)
+       
+        
+    def fit(self,x,y):
+        
+        x=tensor(x,dtype=float,requires_grad=True)
+        y=tensor(y,dtype=float)
+        fit_set=TensorDataset(x,y)
+        fit_loader=DataLoader(fit_set,batch_size=32,shuffle=True)
+        
+        self.net.train()
+        
+        for data,targets in fit_loader:
+            
+            self.optim.zero_grad()
+            
+            outputs=self.net(data.float())
+            
+            loss=F.smooth_l1_loss(outputs,targets.float())
+            
+            loss.backward()
+            self.optim.step()
+            
+    def predict(self,x):
+        
+        self.net.eval()
+        
+        x=tensor(x,dtype=float)
+        
+        
+        return self.net(x.float()).detach().numpy()
     
-    model=Model(inputs=inputs,outputs=y)
+    def get_weights(self):
         
-    model.compile(
-                loss='mse',
-                optimizer='adam',
-                )
+        return self.net.state_dict()
     
-    return model
+    def set_weights(self,model_weights):
+        
+        self.net.load_state_dict(model_weights)
+    
+    def save(self,name=str()):
+        
+        torch.save(self.net.state_dict(),name)
 
     
 def main():
     
     env=environment()
     
-    agent=DDQN_agent(model=model(),
+    agent=DDQN_agent(main_model=model(),
+                    target_model=model(),
                     env=env,
                     n_action=2,
                     alpha=0.5,
                     g=0.9,
-                    n_count=5,
-                    using_data_rate=0.5,
+                    n_count=25,
+                    using_data_rate=0.7,
+                    game_over_r=-1,
                     n_test=5,
                     finish_score=200,
                     save_name='DDQN')

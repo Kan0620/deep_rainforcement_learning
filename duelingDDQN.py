@@ -1,61 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sun Mar  7 18:56:30 2021
+Created on Mon Mar  8 02:21:30 2021
 
 @author: nakaharakan
 """
+
 import numpy as np
 import random
 
-
-'''
-class environment()で環境クラスを定義する 
-
-.reset()で初期化してその状態を返す
-
-
-.step(action=(行動のindex))で
-next_s(その行動をすると得られる次のs,ニューラルネットに入れる状態にしておく)、
-reward、done(エピソードが終わったかの真理値終わったらTrue)を返す 
-=================================================================
-
-関数　create_model()で上のnext_sを入力、行動価値を出力にもつmodelを返す
-
-Kerasで実装
-
-==================================================================
-
-class duelingDQN_agent()でエージェントを定義する。引数はmodel、環境（上で定義したようなクラスの
-インスタンス）、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
-下で説明するn_count,n_test,finish_score,using_data_rateの10個
-
-.new_epsilon(epoch)でそのepochでのepsilonを返す
-
-.create_train_data(epsilon,count)でn_count回エピソードが終わるまでepsilon-greedyで探索
-sのarray,aのindexのarray ,rのarray,s'のarrayをを作りDQNのアルゴリズムにしたがって
-教師信号の入力xと出力yを返す。この時データの時系列を破壊するため得られた履歴のusing_data_rate*100%だけ使用
-
-
-.test()で今のエージェントが100%自分で行動選択した場合n_test回のエピソードで
-一回あたり平均どれだけの利得を得られたかを返す
-
-.save()でモデルを保存 モデル名は引数からのsave_name
-
-.fit()でepochと.test()の値を表示しながら学習、test()の値がfinish_score以上になれば
-学習終了、saveも毎epochする
-
-simpleDQNとの違いがネットワーク部分だけなので使用例部分しか変わってません
-
-'''
-
-class duelingDQN_agent():
+class duelingDDQN_agent():
     
     def __init__(self,model,env,n_action,alpha,g,n_count,using_data_rate,n_test,finish_score,save_name):
         
         model.summary()
         
-        self.model=model
+        #２つのモデルを定義
+        
+        self.main_model=model
+        
+        self.target_model=model
         
         self.env=env
         
@@ -114,7 +78,7 @@ class duelingDQN_agent():
                         
                     else:#活用
                          
-                            action=np.argmax(self.model.predict(np.array([observation]))[0])
+                            action=np.argmax(self.main_model.predict(np.array([observation]))[0])
                         
                     a_index.append(action)
                         
@@ -132,7 +96,7 @@ class duelingDQN_agent():
                         
                     else:#活用
                          
-                            action=np.argmax(self.model.predict(np.array([observation]))[0])
+                            action=np.argmax(self.main_model.predict(np.array([observation]))[0])
                     
                     observation,reward,done=self.env.step(action)
                     
@@ -145,14 +109,25 @@ class duelingDQN_agent():
         #x、yはニューラルネットの入力と出力
         x=s
         
-        y=self.model.predict(s)
+        y=self.main_model.predict(s)
         
-        #Q-learningの更新式でyを更新
+        #Double Q-learningの更新式でyを更新
+        
         
         y[np.array([i for i in range(len(x))]),a_index]=\
         (1-self.alpha)*y[np.array([i for i in range(len(x))]),a_index]+\
-        self.alpha*(r+self.g*self.model.predict(next_s).max(axis=1))
-                
+        self.alpha*(r+self.g*self.target_model.predict(next_s)\
+                    [np.array([i for i in range(len(x))]),y.argmax(axis=1)])
+        
+        '''
+        ↓上のコードの意味↓　行が対応しています y＝main_model(s)
+        
+        
+        新しいQ値=
+        (1-α)main_Q(s,a)+
+        α(r+γ*target_Q(s,a'))
+        ただしa'はmain_modelの出力値のargmax
+        '''        
                 
         return x,y        
     
@@ -171,12 +146,12 @@ class duelingDQN_agent():
             while not done:
                 
                                 
-                action=np.argmax(self.model.predict(np.array([observation]))[0])
+                action=np.argmax(self.main_model.predict(np.array([observation]))[0])
                 
                 observation,reward,done=self.env.step(action)
                 
                 #r+=reward
-            r+=self.env.count
+            r+=self.env.count   
                 
         return r/n_test
     
@@ -184,7 +159,7 @@ class duelingDQN_agent():
     
     def save(self,save_name):
         
-        self.model.save(save_name+'.hdf5')
+        self.main_model.save(save_name+'.hdf5')
         
         
     
@@ -201,8 +176,12 @@ class duelingDQN_agent():
             #教師データ取得
             x,y=self.create_train_data(self.n_count,self.using_data_rate,self.n_action,epsilon)
             
-            #ニューラルネット学習
-            self.model.fit(x,y,
+            #main_modelの重みをtarget_modelの重みに共有
+            
+            self.target_model.set_weights(self.main_model.get_weights())
+            
+            #main_model学習
+            self.main_model.fit(x,y,
                        epochs=3,
                        verbose=0
                        )
@@ -273,14 +252,13 @@ class environment():
             reward=-1
             
         return observation,reward,done
-
-
-
+    
 
 from keras.layers import Dense,Input,concatenate,Lambda
 import keras.backend as K
 from keras import Model
 from tensorflow import stop_gradient
+
         
 def model():
     
@@ -316,7 +294,6 @@ def model():
     '''
     
     model=Model(inputs=inputs,outputs=y)
-    
         
     model.compile(
                 loss='mse',
@@ -330,7 +307,7 @@ def main():
     
     env=environment()
     
-    agent=duelingDQN_agent(model=model(),
+    agent=duelingDDQN_agent(model=model(),
                     env=env,
                     n_action=2,
                     alpha=0.5,
@@ -339,7 +316,7 @@ def main():
                     using_data_rate=0.7,
                     n_test=5,
                     finish_score=200,
-                    save_name='duelingDQN')
+                    save_name='DDQN')
     
     agent.fit()
 
@@ -347,5 +324,3 @@ def main():
 if __name__=='__main__':
     
     main()
-
-          
