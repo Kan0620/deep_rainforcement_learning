@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat Mar  6 14:16:44 2021
+Created on Sun Mar  7 18:56:30 2021
 
 @author: nakaharakan
 """
-
 import numpy as np
 import random
 
@@ -26,51 +25,46 @@ class model() でニューラルネットを定義
 .predict(入力のnumpy配列)で（N,n_output)の出力を返す
 .save(保存名)でニューラルネット保存
 .fit(入力のnumpy配列,出力のnumpy配列)で学習
-.get_weights()でモデルの重み出力
-.set_weights(モデルの重み)でモデルの重み読み込み
 
 pytorchで実装
+
 ==================================================================
 
-class DDQN_agent()でエージェントを定義する。引数はmodelインスタンス２つ（target＿model,main＿model）
-、environmentインスタンス、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
-下で説明するn_count,n_test,finish_score,using_data_rate,game_over_r
+class duelingDQN_agent()でエージェントを定義する。引数はmodelインスタンス、environmentインスタンス
+、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
+下で説明するn_count,n_test,finish_score,using_data_rate
 
 .new_epsilon(epoch)でそのepochでのepsilonを返す
 
 .create_train_data(epsilon,count)でn_count回エピソードが終わるまでepsilon-greedyで探索
-sのarray,aのindexのarray ,rのarray,s'のarrayをを作りDDQNのアルゴリズムにしたがって
+sのarray,aのindexのarray ,rのarray,s'のarrayをを作りDQNのアルゴリズムにしたがって
 教師信号の入力xと出力yを返す。この時データの時系列を破壊するため得られた履歴のusing_data_rate*100%だけ使用
 
 self.next_Q_predict（次のs’を表すNNへの入力,そのs’に到達した時に得られたr)で
 shapeが（入力されたs'のlen,行動数)のQ値を返すがrがgame_over_rの場合はその行のQ値
-を全て0にする　DDQNなのでtarget_modelが出力することに注意
+を全て0にする ゲームオーバーがないタスクの場合はとり得ないrを指定しておけばOK
 
 .test()で今のエージェントが100%自分で行動選択した場合n_test回のエピソードで
-一回あたり平均どれだけの利得を得られたかを返す その値がfinish_scoreになるまでfitを繰り返す
+一回あたり平均どれだけの利得を得られたかを返す
 
 .save()でモデルを保存 モデル名は引数からのsave_name
 
-.fit()でepochと.test()の値を表示しながら学習save()も毎epochする 
+.fit()でepochと.test()の値を表示しながら学習、test()の値がfinish_score以上になれば
+学習終了、saveも毎epochする
 
-
+simpleDQNとの違いがネットワーク部分だけなので使用例部分しか変わってません
 
 '''
 
-
-
-class DDQN_agent():
+class duelingDQN_agent():
     
-    def __init__(self,main_model,target_model,env,n_action,alpha,g,n_count,using_data_rate,\
+    def __init__(self,model,env,n_action,alpha,g,n_count,using_data_rate,\
                  game_over_r,n_test,finish_score,save_name):
         
-        print(main_model)
         
-        #２つのモデルを定義
+        print(model)
         
-        self.main_model=main_model
-        
-        self.target_model=target_model
+        self.model=model
         
         self.env=env
         
@@ -100,7 +94,7 @@ class DDQN_agent():
     
     def next_Q_predict(self,next_s,r):
         
-        y=self.target_model.predict(next_s)
+        y=self.model.predict(next_s)
         
         game_over_index=np.where(r==self.game_over_r)[0]
         
@@ -139,7 +133,7 @@ class DDQN_agent():
                         
                     else:#活用
                          
-                            action=np.argmax(self.main_model.predict(np.array([observation]))[0])
+                            action=np.argmax(self.model.predict(np.array([observation]))[0])
                         
                     a_index.append(action)
                         
@@ -157,7 +151,7 @@ class DDQN_agent():
                         
                     else:#活用
                          
-                            action=np.argmax(self.main_model.predict(np.array([observation]))[0])
+                            action=np.argmax(self.model.predict(np.array([observation]))[0])
                     
                     observation,reward,done=self.env.step(action)
                     
@@ -170,25 +164,14 @@ class DDQN_agent():
         #x、yはニューラルネットの入力と出力
         x=s
         
-        y=self.main_model.predict(s)
+        y=self.model.predict(s)
         
-        #Double Q-learningの更新式でyを更新
-        
+        #Q-learningの更新式でyを更新
         
         y[np.arange(len(x)),a_index]=\
         (1-self.alpha)*y[np.arange(len(x)),a_index]+\
-        self.alpha*(r+self.g*self.next_Q_predict(next_s,r)\
-                    [np.arange(len(x)),y.argmax(axis=1)])
-        
-        '''
-        ↓上のコードの意味↓　行が対応しています y＝main_model(s)
-        
-        
-        新しいQ値=
-        (1-α)main_Q(s,a)+
-        α(r+γ*target_Q(s,a'))
-        ただしa'はmain_modelの出力値のargmax
-        '''        
+        self.alpha*(r+self.g*self.next_Q_predict(next_s,r).max(axis=1))
+                
                 
         return x,y        
     
@@ -207,14 +190,12 @@ class DDQN_agent():
             while not done:
                 
                                 
-                action=np.argmax(self.main_model.predict(np.array([observation]))[0])
+                action=np.argmax(self.model.predict(np.array([observation]))[0])
                 
                 observation,reward,done=self.env.step(action)
                 
                 r+=reward
             
-        
-        
                 
         return r/n_test
     
@@ -222,7 +203,7 @@ class DDQN_agent():
     
     def save(self,save_name):
         
-        self.main_model.save(save_name)
+        self.model.save(save_name)
         
         
     
@@ -239,12 +220,8 @@ class DDQN_agent():
             #教師データ取得
             x,y=self.create_train_data(self.n_count,self.using_data_rate,self.n_action,epsilon)
             
-            #main_modelの重みをtarget_modelの重みに共有
-            
-            self.target_model.set_weights(self.main_model.get_weights())
-           
-            #main_model学習
-            self.main_model.fit(x,y)
+            #ニューラルネット学習
+            self.model.fit(x,y)
             #モデル保存
             self.save(self.save_name)
             
@@ -303,7 +280,6 @@ class environment():
             
             reward=0
             
-        
             
         if done:
             
@@ -313,8 +289,10 @@ class environment():
             
             reward=1
             
-            
         return observation,reward,done
+
+
+
 
 import torch
 from torch import tensor
@@ -323,7 +301,6 @@ from torch.nn import functional as F,Linear,Module
 from torch.optim import Adam
 
 
-        
 class model():
     
     def __init__(self):
@@ -335,15 +312,30 @@ class model():
                 super(Net,self).__init__()
                 self.fc1=Linear(4,10)
                 self.fc2=Linear(10,10)
-                self.fc3=Linear(10,2)
-                  
+                self.to_adv=Linear(10,2)
+                self.to_V=Linear(10,1)
         
             def forward(self,x):
         
                 h1=F.relu(self.fc1(x))
                 h2=F.relu(self.fc2(h1))
-                outputs=self.fc3(h2)
-        
+                adv=self.to_adv(h2)
+                V=self.to_V(h2).expand(-1,2) 
+                '''
+                Vはshapeが（N,1)なのであとでadvと足し算できるように.expand(-1,行動の数=2)
+                しています。
+                '''
+                
+                outputs=V+adv-adv.mean(1,keepdim=True).expand(-1,2)
+                
+                '''
+                adv.mean(1）はshapeが（N)なのでkeepdim=Trueで（N,1)にして
+                V+advと足し算できるように.expand(-1,行動の数=2)
+                しています。
+                '''
+                
+                
+                
                 return outputs
         
         
@@ -371,7 +363,6 @@ class model():
             loss=F.smooth_l1_loss(outputs,targets.float())
             
             loss.backward()
-            
             self.optim.step()
             
     def predict(self,x):
@@ -383,26 +374,16 @@ class model():
         
         return self.net(x.float()).detach().numpy()
     
-    def get_weights(self):
-        
-        return self.net.state_dict()
-    
-    def set_weights(self,model_weights):
-        
-        self.net.load_state_dict(model_weights)
-    
     def save(self,name=str()):
         
         torch.save(self.net.state_dict(),name)
-
     
 def main():
     
-    env=environment()
     
-    agent=DDQN_agent(main_model=model(),
-                    target_model=model(),
-                    env=env,
+    
+    agent=duelingDQN_agent(model=model(),
+                    env=environment(),
                     n_action=2,
                     alpha=0.5,
                     g=0.9,
@@ -411,7 +392,7 @@ def main():
                     game_over_r=-1,
                     n_test=5,
                     finish_score=1,
-                    save_name='DDQN')
+                    save_name='duelingDQN')
     
     agent.fit()
 
@@ -420,4 +401,4 @@ if __name__=='__main__':
     
     main()
 
-           
+          

@@ -25,16 +25,15 @@ class model() でニューラルネットを定義
 
 .predict(入力のnumpy配列)で（N,n_output)の出力を返す
 .save(保存名)でニューラルネット保存
-.fit(入力のnumpy配列,入力のnumpy配列)で学習
+.fit(入力のnumpy配列,出力のnumpy配列)で学習
 
 pytorchで実装
 
 
 ==================================================================
 
-class DQN_agent()でエージェントを定義する。引数はmodel、環境（上で定義したようなクラスの
-インスタンス）、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
-下で説明するn_count,n_test,finish_score,using_data_rate,game_over_rの11個
+class DQN_agent()でエージェントを定義する。引数はmodelインスタンス、environmentインスタンス、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
+下で説明するn_count,n_test,finish_score,using_data_rate,game_over_r
 
 .new_epsilon(epoch)でそのepochでのepsilonを返す
 
@@ -201,8 +200,7 @@ class DQN_agent():
                 
                 observation,reward,done=self.env.step(action)
                 
-                #r+=reward
-            r+=self.env.count
+                r+=reward
                 
         return r/n_test
     
@@ -218,7 +216,7 @@ class DQN_agent():
         
         epoch=1
         
-        score=0
+        score=self.finish_score-1
         
         while  self.finish_score>score: #学習の継続条件
             
@@ -290,13 +288,14 @@ class environment():
             
             reward=0
             
-        if self.count==200:
-            
-            reward=1
             
         if done:
             
             reward=-1
+            
+        if self.count==200:
+            
+            reward=1
             
         return observation,reward,done
     
@@ -383,7 +382,7 @@ def main():
                     using_data_rate=0.7,
                     game_over_r=-1,
                     n_test=5,
-                    finish_score=200,
+                    finish_score=1,
                     save_name='simpleDQN')
     
     agent.fit()
