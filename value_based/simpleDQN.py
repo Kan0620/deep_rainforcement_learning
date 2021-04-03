@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sun Mar  7 18:56:30 2021
+Created on Fri Mar  5 17:15:53 2021
 
 @author: nakaharakan
 """
+
 import numpy as np
 import random
 
@@ -28,11 +29,11 @@ class model() でニューラルネットを定義
 
 pytorchで実装
 
+
 ==================================================================
 
-class duelingDQN_agent()でエージェントを定義する。引数はmodelインスタンス、environmentインスタンス
-、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
-下で説明するn_count,n_test,finish_score,using_data_rate
+class DQN_agent()でエージェントを定義する。引数はmodelインスタンス、environmentインスタンス、actionの数n_action、学習率alpha、割引率g、モデルを保存するときの名前save_nameと
+下で説明するn_count,n_test,finish_score,using_data_rate,game_over_r
 
 .new_epsilon(epoch)でそのepochでのepsilonを返す
 
@@ -44,6 +45,7 @@ self.next_Q_predict（次のs’を表すNNへの入力,そのs’に到達し�
 shapeが（入力されたs'のlen,行動数)のQ値を返すがrがgame_over_rの場合はその行のQ値
 を全て0にする ゲームオーバーがないタスクの場合はとり得ないrを指定しておけばOK
 
+
 .test()で今のエージェントが100%自分で行動選択した場合n_test回のエピソードで
 一回あたり平均どれだけの利得を得られたかを返す
 
@@ -52,15 +54,14 @@ shapeが（入力されたs'のlen,行動数)のQ値を返すがrがgame_over_r�
 .fit()でepochと.test()の値を表示しながら学習、test()の値がfinish_score以上になれば
 学習終了、saveも毎epochする
 
-simpleDQNとの違いがネットワーク部分だけなので使用例部分しか変わってません
+
 
 '''
 
-class duelingDQN_agent():
+class DQN_agent():
     
     def __init__(self,model,env,n_action,alpha,g,n_count,using_data_rate,\
                  game_over_r,n_test,finish_score,save_name):
-        
         
         print(model)
         
@@ -86,23 +87,28 @@ class duelingDQN_agent():
         
         self.game_over_r=game_over_r
         
+        
+        
     def new_epsilon(self,epoch): 
         
         #指数的に減衰させる
         
         return 0.95**(epoch-1)
     
+    
     def next_Q_predict(self,next_s,r):
         
         y=self.model.predict(next_s)
         
-        game_over_index=np.where(r==self.game_over_r)[0]
+        game_over_index=np.where(sum([r==i for i in self.game_over_r]))[0]
         
         y[game_over_index]=np.zeros(self.n_action)
         
         return y
+        
+        
     
-    def create_train_data(self,n_count,using_data_rate,n_action,epsilon):
+    def create_train_data(self,epsilon):
         
         s=[]
         a_index=[]
@@ -111,7 +117,7 @@ class duelingDQN_agent():
         
         #n_count回分のデータ作成
         
-        for i in range(n_count):
+        for i in range(self.n_count):
             
             #エピソードが終わっているかの変数doneをFalseに初期化、環境も初期化
             
@@ -121,7 +127,7 @@ class duelingDQN_agent():
             
             while not done:                
                 
-                if random.random()<using_data_rate:#今からの処理で得られるデータが学習に使われる場合
+                if random.random()<self.using_data_rate:#今からの処理で得られるデータが学習に使われる場合
                     
                 
                     
@@ -129,7 +135,7 @@ class duelingDQN_agent():
                 
                     if random.random()<epsilon:#探索
                         
-                            action=np.random.choice(n_action)
+                            action=np.random.choice(self.n_action)
                         
                     else:#活用
                          
@@ -147,7 +153,7 @@ class duelingDQN_agent():
                 else:#使われない場合
                     if random.random()<epsilon:#探索
                         
-                            action=np.random.choice(n_action)
+                            action=np.random.choice(self.n_action)
                         
                     else:#活用
                          
@@ -177,11 +183,11 @@ class duelingDQN_agent():
     
     
                 
-    def test(self,n_test):
+    def test(self):
         
         r=0
         
-        for i in range(n_test):
+        for i in range(self.n_test):
             
             done=False
             
@@ -195,9 +201,8 @@ class duelingDQN_agent():
                 observation,reward,done=self.env.step(action)
                 
                 r+=reward
-            
                 
-        return r/n_test
+        return r/self.n_test
     
     
     
@@ -218,7 +223,7 @@ class duelingDQN_agent():
             epsilon=self.new_epsilon(epoch)#新しいepsilon取得
             
             #教師データ取得
-            x,y=self.create_train_data(self.n_count,self.using_data_rate,self.n_action,epsilon)
+            x,y=self.create_train_data(epsilon)
             
             #ニューラルネット学習
             self.model.fit(x,y)
@@ -226,7 +231,7 @@ class duelingDQN_agent():
             self.save(self.save_name)
             
             #現在のモデルの平均スコア取得
-            score=self.test(self.n_test)
+            score=self.test()
             
             print('epoch:'+str(epoch)+'  score:'+str(score))
             
@@ -253,6 +258,7 @@ class duelingDQN_agent():
 ################ cart_poleでの使用例 ##############
         
 import gym
+
 
 class environment():
     
@@ -290,17 +296,15 @@ class environment():
             reward=1
             
         return observation,reward,done
-
-
-
-
+    
+    
 import torch
 from torch import tensor
 from torch.utils.data import TensorDataset,DataLoader
 from torch.nn import functional as F,Linear,Module
 from torch.optim import Adam
 
-
+        
 class model():
     
     def __init__(self):
@@ -312,30 +316,15 @@ class model():
                 super(Net,self).__init__()
                 self.fc1=Linear(4,10)
                 self.fc2=Linear(10,10)
-                self.to_adv=Linear(10,2)
-                self.to_V=Linear(10,1)
+                self.fc3=Linear(10,2)
+                  
         
             def forward(self,x):
         
                 h1=F.relu(self.fc1(x))
                 h2=F.relu(self.fc2(h1))
-                adv=self.to_adv(h2)
-                V=self.to_V(h2).expand(-1,2) 
-                '''
-                Vはshapeが（N,1)なのであとでadvと足し算できるように.expand(-1,行動の数=2)
-                しています。
-                '''
-                
-                outputs=V+adv-adv.mean(1,keepdim=True).expand(-1,2)
-                
-                '''
-                adv.mean(1）はshapeが（N)なのでkeepdim=Trueで（N,1)にして
-                V+advと足し算できるように.expand(-1,行動の数=2)
-                しています。
-                '''
-                
-                
-                
+                outputs=self.fc3(h2)
+        
                 return outputs
         
         
@@ -377,22 +366,22 @@ class model():
     def save(self,name=str()):
         
         torch.save(self.net.state_dict(),name)
+
     
 def main():
     
     
-    
-    agent=duelingDQN_agent(model=model(),
+    agent=DQN_agent(model=model(),
                     env=environment(),
                     n_action=2,
                     alpha=0.5,
                     g=0.9,
                     n_count=25,
                     using_data_rate=0.7,
-                    game_over_r=-1,
+                    game_over_r=[-1,1],
                     n_test=5,
                     finish_score=1,
-                    save_name='duelingDQN')
+                    save_name='simpleDQN')
     
     agent.fit()
 
@@ -401,4 +390,49 @@ if __name__=='__main__':
     
     main()
 
-          
+            
+        
+        
+    
+    
+            
+            
+        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

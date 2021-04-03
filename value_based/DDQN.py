@@ -102,13 +102,13 @@ class DDQN_agent():
         
         y=self.target_model.predict(next_s)
         
-        game_over_index=np.where(r==self.game_over_r)[0]
+        game_over_index=np.where(sum([r==i for i in self.game_over_r]))[0]
         
         y[game_over_index]=np.zeros(self.n_action)
         
         return y
     
-    def create_train_data(self,n_count,using_data_rate,n_action,epsilon):
+    def create_train_data(self,epsilon):
         
         s=[]
         a_index=[]
@@ -117,7 +117,7 @@ class DDQN_agent():
         
         #n_count回分のデータ作成
         
-        for i in range(n_count):
+        for i in range(self.n_count):
             
             #エピソードが終わっているかの変数doneをFalseに初期化、環境も初期化
             
@@ -127,7 +127,7 @@ class DDQN_agent():
             
             while not done:                
                 
-                if random.random()<using_data_rate:#今からの処理で得られるデータが学習に使われる場合
+                if random.random()<self.using_data_rate:#今からの処理で得られるデータが学習に使われる場合
                     
                 
                     
@@ -135,7 +135,7 @@ class DDQN_agent():
                 
                     if random.random()<epsilon:#探索
                         
-                            action=np.random.choice(n_action)
+                            action=np.random.choice(self.n_action)
                         
                     else:#活用
                          
@@ -153,7 +153,7 @@ class DDQN_agent():
                 else:#使われない場合
                     if random.random()<epsilon:#探索
                         
-                            action=np.random.choice(n_action)
+                            action=np.random.choice(self.n_action)
                         
                     else:#活用
                          
@@ -194,11 +194,11 @@ class DDQN_agent():
     
     
                 
-    def test(self,n_test):
+    def test(self):
         
         r=0
         
-        for i in range(n_test):
+        for i in range(self.n_test):
             
             done=False
             
@@ -216,7 +216,7 @@ class DDQN_agent():
         
         
                 
-        return r/n_test
+        return r/self.n_test
     
     
     
@@ -237,7 +237,7 @@ class DDQN_agent():
             epsilon=self.new_epsilon(epoch)#新しいepsilon取得
             
             #教師データ取得
-            x,y=self.create_train_data(self.n_count,self.using_data_rate,self.n_action,epsilon)
+            x,y=self.create_train_data(epsilon)
             
             #main_modelの重みをtarget_modelの重みに共有
             
@@ -249,7 +249,7 @@ class DDQN_agent():
             self.save(self.save_name)
             
             #現在のモデルの平均スコア取得
-            score=self.test(self.n_test)
+            score=self.test()
             
             print('epoch:'+str(epoch)+'  score:'+str(score))
             
@@ -408,7 +408,7 @@ def main():
                     g=0.9,
                     n_count=25,
                     using_data_rate=0.7,
-                    game_over_r=-1,
+                    game_over_r=[-1,1],
                     n_test=5,
                     finish_score=1,
                     save_name='DDQN')

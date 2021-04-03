@@ -118,7 +118,8 @@ class A2C_agent():
             
             r_s=r[i:i+self.n_step]
             
-            if self.game_over_r in r_s:#n_stepの間にgameoverしている場合
+            if any([one_game_over_r in r_s for one_game_over_r in self.game_over_r]):
+                #n_stepの間にgameoverしている場合
                 
                 game_over_flag=0
                 count=0
@@ -129,7 +130,8 @@ class A2C_agent():
                     
                     q+=np.power(self.g,count)*now_r
                     
-                    if now_r==self.game_over_r:
+                    if now_r in self.game_over_r:
+                        
                         
                         game_over_flag=1
                         
@@ -141,7 +143,7 @@ class A2C_agent():
                     
                     q+=np.power(self.g,j)*one_r
                                         
-                q+=np.power(self.g,self.n_step)*V_s[i+self.n_step]#w割引した状態価値を足す
+                q+=np.power(self.g,self.n_step)*V_s[i+self.n_step]#割引した状態価値を足す
                 
                 
             Q.append(q)
@@ -372,7 +374,7 @@ class model():
 def main():
     
     agent=A2C_agent(model=model(),env=environment(),n_action=2,n_step=5,g=0.9,save_name='A2C',\
-    critic_loss_coef=0.5,entropy_coef=0.01,n_count=200,n_test=5,finish_score=1,game_over_r=-1)
+    critic_loss_coef=0.5,entropy_coef=0.01,n_count=200,n_test=5,finish_score=1,game_over_r=[-1,1])
     
     agent.fit()
     
