@@ -19,6 +19,10 @@ class prioritized_replay_agent():
         
         print(model)
         
+        if n_train_data>capacity:
+            
+            print('n_train_data<capacityとなるようにしてください')
+        
         self.model=model
         
         self.env=env
@@ -162,11 +166,11 @@ class prioritized_replay_agent():
             forget_index=np.random.choice(len(self.memory_s),len(self.memory_s)-self.capacity,\
                                          p=inverse_TD_error/inverse_TD_error.sum(),replace=False)
             
-            np.delete(self.memory_s,forget_index)
-            np.delete(self.memory_a_index,forget_index)
-            np.delete(self.memory_r,forget_index)
-            np.delete(self.memory_next_s,forget_index)
-        
+            self.memory_s=np.delete(self.memory_s,forget_index,axis=0)
+            self.memory_a_index=np.delete(self.memory_a_index,forget_index,axis=0)
+            self.memory_r=np.delete(self.memory_r,forget_index,axis=0)
+            self.memory_next_s=np.delete(self.memory_next_s,forget_index,axis=0)
+            self.memory_done=np.delete(self.memory_done,forget_index,axis=0)
             
     def test(self):
         
@@ -351,7 +355,7 @@ def main():
                                    n_action=2,
                                    n_train_data=100,
                                    td_error_epsilon=0.0001,
-                                   capacity=100000,
+                                   capacity=100,
                                    alpha=0.5,
                                    g=0.9,
                                    n_count=25,
