@@ -34,7 +34,7 @@ pytorchで実装
 
 class rainbowDQN_agent()でエージェントを定義する。引数はmain_modelインスタンス,target_modelインスタンス,envインスタンス,行動の数n_action,
 経験再生で選ぶデータの数n_train_data,TD誤差の補正td_error_epsilon,貯めるデータん数の上限capacity,ビンの数n_atoms,行動価値の最小値min_V,最大値max_V,
-学習率alpha,割引率g,1epochにまわすエピソードの数n_count,アドバンテージ学習するstep数n_step,性能評価でまわすエピソードの数n_test,
+学習率lr_alpha,experience_replayにおける定数alpha,beta,割引率g,1epochにまわすエピソードの数n_count,アドバンテージ学習するstep数n_step,性能評価でまわすエピソードの数n_test,
 学習をおわらせるスコアfinish_score,pytorchのファイルで保存するファイル名save_name
 
 
@@ -75,7 +75,7 @@ import numpy as np
 class rainbowDQN_agent():
     
     def __init__(self,main_model,target_model,env,n_action,n_train_data,\
-                 td_error_epsilon,capacity,n_atoms,min_V,max_V,alpha,g,n_count,\
+                 td_error_epsilon,capacity,n_atoms,min_V,max_V,lr_alpha,alpha,beta,g,n_count,\
                  n_step,n_test,finish_score,save_name):
         
         print(main_model)
@@ -97,6 +97,10 @@ class rainbowDQN_agent():
         self.n_train_data=n_train_data
         
         self.alpha=alpha
+        
+        self.beta=beta
+        
+        self.lr_alpha=lr_alpha
         
         self.g=g
         
@@ -324,8 +328,8 @@ class rainbowDQN_agent():
        #doubleQ-learningの更新式でyを更新
         
         new_Q[np.arange(len(self.memory_s)),self.memory_a_index]=\
-        (1-self.alpha)*new_Q[np.arange(len(self.memory_s)),self.memory_a_index]+\
-        self.alpha*self.new_Q_distribution(self.memory_s,self.memory_r,self.memory_done)
+        (1-self.lr_alpha)*new_Q[np.arange(len(self.memory_s)),self.memory_a_index]+\
+        self.lr_alpha*self.new_Q_distribution(self.memory_s,self.memory_r,self.memory_done)
         
         x=self.memory_s
         
@@ -333,16 +337,21 @@ class rainbowDQN_agent():
         
         #優先度付き経験再生
         
+        w=1
+        
         if len(self.memory_s)>self.n_train_data:
             
             TD_error=(new_Q[np.arange(len(self.memory_s)),self.memory_a_index]*
                             np.log((self.target_model.predict(self.memory_s)\
                                       [np.arange(len(self.memory_s)),self.memory_a_index]))).sum(axis=1)+self.td_error_epsilon
             
+            TD_error=np.power(TD_error,self.alpha)
             
             train_index=np.random.choice(len(self.memory_s),self.n_train_data,\
                                          p=TD_error/TD_error.sum(),replace=False)
             
+            
+            w=np.power(1/(len(TD_error)+TD_error),self.beta).max()
             
             self.TD_error=TD_error
             
@@ -350,7 +359,7 @@ class rainbowDQN_agent():
             y=y[train_index]
             
             
-        return x,y
+        return x,y,w
     
     
     
@@ -392,7 +401,6 @@ class rainbowDQN_agent():
         
         if len(self.memory_s)>self.capacity:
             
-            print(len(self.TD_error),len(self.memory_s))
             
             
             inverse_TD_error=1/(self.TD_error+1e-8)
@@ -418,14 +426,14 @@ class rainbowDQN_agent():
             
             
             #教師データ取得
-            x,y=self.create_train_data()
+            x,y,w=self.create_train_data()
             
             #main_modelの重みをtarget_modelの重みに共有
             
             self.target_model.set_weights(self.main_model.get_weights())
            
             #main_model学習
-            self.main_model.fit(x,y)
+            self.main_model.fit(x,y,w)
             
             #データ量がcapacityを超えてる場合は忘れる
             self.forget_memory()
@@ -586,7 +594,7 @@ class model():
         self.optim=Adam(self.net.parameters(),lr=0.01)
        
         
-    def fit(self,x,y):
+    def fit(self,x,y,w):
         
         x=tensor(x,dtype=float)
         y=tensor(y,dtype=float)
@@ -603,7 +611,7 @@ class model():
             
             reshaped_targets=torch.reshape(targets,(-1,51))
             
-            loss=(-reshaped_targets*((outputs+1e-8).log())).sum(dim=1).mean() #クロスエントロピー
+            loss=(-reshaped_targets*((outputs+1e-8).log())).sum(dim=1).mean()*w #クロスエントロピー
             
             loss.backward()
             
@@ -644,7 +652,9 @@ def main():
                            n_atoms=51,
                            min_V=-10,
                            max_V=10,
-                           alpha=0.3,
+                           lr_alpha=0.3,
+                           alpha=0.7,
+                           beta=0.5,
                            g=0.9,
                            n_count=75,
                            n_step=3,

@@ -14,7 +14,7 @@ import random
 
 class prioritized_replay_agent():
     
-    def __init__(self,model,env,n_action,n_train_data,td_error_epsilon,capacity,alpha,g,n_count,\
+    def __init__(self,model,env,n_action,n_train_data,td_error_epsilon,capacity,alpha,beta,lr_alpha,g,n_count,\
                  game_over_r,n_test,finish_score,save_name):
         
         print(model)
@@ -36,6 +36,10 @@ class prioritized_replay_agent():
         self.capacity=capacity
         
         self.alpha=alpha
+        
+        self.beta=beta
+        
+        self.lr_alpha=lr_alpha
         
         self.g=g
         
@@ -120,7 +124,7 @@ class prioritized_replay_agent():
                 
                 self.memory_next_s=np.append(self.memory_next_s,observation.reshape(1,-1),0)
                 
-        
+                self.memory_done=np.array(int(done))
                 
         
         #x、yはニューラルネットの入力と出力
@@ -128,21 +132,25 @@ class prioritized_replay_agent():
         #Q-learningの更新式でyを更新
         
         new_Q[np.arange(len(self.memory_s)),self.memory_a_index]=\
-        (1-self.alpha)*new_Q[np.arange(len(self.memory_s)),self.memory_a_index]+\
-        self.alpha*(self.memory_r+self.g*self.next_Q_predict(self.memory_next_s,self.memory_r).max(axis=1))
+        (1-self.lr_alpha)*new_Q[np.arange(len(self.memory_s)),self.memory_a_index]+\
+        self.lr_alpha*(self.memory_r+self.g*self.next_Q_predict(self.memory_next_s,self.memory_r).max(axis=1))
         
         x=self.memory_s
         
         y=new_Q
         
+        w=1
+        
         
         if len(self.memory_s)>self.n_train_data:
             
-            TD_error=np.abs(new_Q-self.model.predict(self.memory_s))[np.arange(len(self.memory_s)),self.memory_a_index]\
-            +self.td_error_epsilon
+            TD_error=np.power(np.abs(new_Q-self.model.predict(self.memory_s))[np.arange(len(self.memory_s)),self.memory_a_index]\
+            +self.td_error_epsilon,self.alpha)
             
             train_index=np.random.choice(len(self.memory_s),self.n_train_data,\
                                          p=TD_error/TD_error.sum(),replace=False)
+            
+            w=np.power(1/(len(TD_error)+TD_error),self.beta).max()
             
             self.TD_error=TD_error
             
@@ -150,7 +158,7 @@ class prioritized_replay_agent():
             y=y[train_index]
             
             
-        return x,y
+        return x,y,w
     
     
     
@@ -211,10 +219,10 @@ class prioritized_replay_agent():
             epsilon=self.new_epsilon(epoch)#新しいepsilon取得
             
             #教師データ取得
-            x,y=self.create_train_data(epsilon)
+            x,y,w=self.create_train_data(epsilon)
             
             #ニューラルネット学習
-            self.model.fit(x,y)
+            self.model.fit(x,y,w)
             
             #データ量がcapacityを超えてる場合は忘れる
             self.forget_memory()
@@ -312,10 +320,11 @@ class model():
        
         
         
-    def fit(self,x,y):
+    def fit(self,x,y,w):
         
-        x=tensor(x,dtype=float,requires_grad=True)
+        x=tensor(x,dtype=float)
         y=tensor(y,dtype=float)
+        w=tensor(w,dtype=float)
         fit_set=TensorDataset(x,y)
         fit_loader=DataLoader(fit_set,batch_size=32,shuffle=True)
         
@@ -327,7 +336,7 @@ class model():
             
             outputs=self.net(data.float())
             
-            loss=F.smooth_l1_loss(outputs,targets.float())
+            loss=F.smooth_l1_loss(outputs,targets.float())*w
             
             loss.backward()
             self.optim.step()
@@ -356,7 +365,9 @@ def main():
                                    n_train_data=100,
                                    td_error_epsilon=0.0001,
                                    capacity=100,
-                                   alpha=0.5,
+                                   alpha=0.7,
+                                   beta=0.5,
+                                   lr_alpha=0.5,
                                    g=0.9,
                                    n_count=25,
                                    game_over_r=[1,-1],
