@@ -75,7 +75,7 @@ import numpy as np
 class rainbowDQN_agent():
     
     def __init__(self,main_model,target_model,env,n_action,n_train_data,\
-                 td_error_epsilon,capacity,n_atoms,min_V,max_V,lr_alpha,alpha,beta,g,n_count,\
+                 td_error_epsilon,capacity,n_atoms,min_V,max_V,lr_alpha,alpha,beta,max_beta_epoch,g,n_count,\
                  n_step,n_test,finish_score,save_name):
         
         print(main_model)
@@ -99,6 +99,8 @@ class rainbowDQN_agent():
         self.alpha=alpha
         
         self.beta=beta
+        
+        self.max_beta_epoch=max_beta_epoch
         
         self.lr_alpha=lr_alpha
         
@@ -131,11 +133,13 @@ class rainbowDQN_agent():
         
         obs=self.env.reset()
         
+        self.memory_s=obs.reshape(1,-1)
+        
         action=np.random.choice(self.n_action)
         
         obs,reward,done=self.env.step(action)
         
-        self.memory_s=obs.reshape(1,-1)
+        
         
         self.memory_a_index=np.array(action)
         
@@ -150,6 +154,16 @@ class rainbowDQN_agent():
         self.td_error_epsilon=td_error_epsilon
         
         self.capacity=capacity
+        
+    def new_beta(self,epoch):
+        
+        if epoch<self.max_beta_epoch:
+            
+            return self.beta+(1-self.beta)*(epoch-1)/(self.max_beta_epoch-1)
+        
+        else:
+            
+            return 1
         
         
         
@@ -341,17 +355,18 @@ class rainbowDQN_agent():
         
         if len(self.memory_s)>self.n_train_data:
             
-            TD_error=(new_Q[np.arange(len(self.memory_s)),self.memory_a_index]*
+            TD_error=-(new_Q[np.arange(len(self.memory_s)),self.memory_a_index]*
                             np.log((self.target_model.predict(self.memory_s)\
                                       [np.arange(len(self.memory_s)),self.memory_a_index]))).sum(axis=1)+self.td_error_epsilon
             
+                            
             TD_error=np.power(TD_error,self.alpha)
             
             train_index=np.random.choice(len(self.memory_s),self.n_train_data,\
                                          p=TD_error/TD_error.sum(),replace=False)
             
             
-            w=np.power(1/(len(TD_error)+TD_error),self.beta).max()
+            w=np.power(1/(len(TD_error)*TD_error/TD_error.sum()),self.beta).max()
             
             self.TD_error=TD_error
             
@@ -431,6 +446,10 @@ class rainbowDQN_agent():
             #main_modelの重みをtarget_modelの重みに共有
             
             self.target_model.set_weights(self.main_model.get_weights())
+            
+            beta=self.new_beta(epoch)
+            
+            w=np.power(w,beta)
            
             #main_model学習
             self.main_model.fit(x,y,w)
@@ -598,6 +617,7 @@ class model():
         
         x=tensor(x,dtype=float)
         y=tensor(y,dtype=float)
+        w=tensor(w,dtype=float)
         fit_set=TensorDataset(x,y)
         fit_loader=DataLoader(fit_set,batch_size=32,shuffle=True)
         
@@ -653,8 +673,9 @@ def main():
                            min_V=-10,
                            max_V=10,
                            lr_alpha=0.3,
-                           alpha=0.7,
-                           beta=0.5,
+                           alpha=0.5,
+                           beta=0.4,
+                           max_beta_epoch=100,
                            g=0.9,
                            n_count=75,
                            n_step=3,

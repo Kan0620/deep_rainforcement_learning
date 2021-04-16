@@ -15,7 +15,7 @@ import random
 class prioritized_replay_agent():
     
     def __init__(self,model,env,n_action,n_train_data,td_error_epsilon,capacity,alpha,beta,lr_alpha,g,n_count,\
-                 game_over_r,n_test,finish_score,save_name):
+                 game_over_r,n_test,finish_score,save_name,max_beta_epoch):
         
         print(model)
         
@@ -53,15 +53,17 @@ class prioritized_replay_agent():
         
         self.game_over_r=game_over_r
         
+        self.max_beta_epoch=max_beta_epoch
+        
         #memoryの定義　一連の（s,α,r,s')でindexが揃っていることに注意
         
         obs=self.env.reset()
         
+        self.memory_s=obs.reshape(1,-1)
+        
         action=np.random.choice(self.n_action)
         
         obs,reward,done=self.env.step(action)
-        
-        self.memory_s=obs.reshape(1,-1)
         
         self.memory_a_index=np.array(action)
         
@@ -76,6 +78,17 @@ class prioritized_replay_agent():
         #指数的に減衰させる
         
         return 0.95**(epoch-1)
+    
+    def new_beta(self,epoch):
+        
+        if epoch<self.max_beta_epoch:
+            
+            return self.beta+(1-self.beta)*(epoch-1)/(self.max_beta_epoch-1)
+        
+        else:
+            
+            return 1
+       
     
     
     def next_Q_predict(self,next_s,r):
@@ -124,7 +137,7 @@ class prioritized_replay_agent():
                 
                 self.memory_next_s=np.append(self.memory_next_s,observation.reshape(1,-1),0)
                 
-                self.memory_done=np.array(int(done))
+                self.memory_done=np.append(self.memory_next_s,observation.reshape(1,-1),0)
                 
         
         #x、yはニューラルネットの入力と出力
@@ -150,7 +163,9 @@ class prioritized_replay_agent():
             train_index=np.random.choice(len(self.memory_s),self.n_train_data,\
                                          p=TD_error/TD_error.sum(),replace=False)
             
-            w=np.power(1/(len(TD_error)+TD_error),self.beta).max()
+            w=(1/(len(TD_error)*TD_error/TD_error)).max()
+            
+            
             
             self.TD_error=TD_error
             
@@ -175,10 +190,10 @@ class prioritized_replay_agent():
                                          p=inverse_TD_error/inverse_TD_error.sum(),replace=False)
             
             self.memory_s=np.delete(self.memory_s,forget_index,axis=0)
-            self.memory_a_index=np.delete(self.memory_a_index,forget_index,axis=0)
-            self.memory_r=np.delete(self.memory_r,forget_index,axis=0)
+            self.memory_a_index=np.delete(self.memory_a_index,forget_index)
+            self.memory_r=np.delete(self.memory_r,forget_index)
             self.memory_next_s=np.delete(self.memory_next_s,forget_index,axis=0)
-            self.memory_done=np.delete(self.memory_done,forget_index,axis=0)
+            
             
     def test(self):
         
@@ -220,6 +235,12 @@ class prioritized_replay_agent():
             
             #教師データ取得
             x,y,w=self.create_train_data(epsilon)
+            
+            beta=self.new_beta(epoch)
+            
+            w=np.power(w,beta)
+            
+            print(w,beta)
             
             #ニューラルネット学習
             self.model.fit(x,y,w)
@@ -362,11 +383,12 @@ def main():
     agent=prioritized_replay_agent(model=model(),
                                    env=environment(),
                                    n_action=2,
-                                   n_train_data=100,
+                                   n_train_data=1000,
                                    td_error_epsilon=0.0001,
-                                   capacity=100,
-                                   alpha=0.7,
-                                   beta=0.5,
+                                   capacity=10000,
+                                   alpha=0.5,
+                                   beta=0.4,
+                                   max_beta_epoch=100,
                                    lr_alpha=0.5,
                                    g=0.9,
                                    n_count=25,
